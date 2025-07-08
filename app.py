@@ -269,7 +269,7 @@ if submitted:
             st.error(f"⚠️ Error fetching data for {ticker}.")
 
 # --- TABS ---
-tab1, tab2, tab3 = st.tabs(["📄 Overview", "📊 Analytics", "Comapny Specifics"])
+tab1, tab2, tab3 = st.tabs(["📄 Overview", "📊 Analytics", "Company Specifics"])
 
 
 # === OVERVIEW TAB ===
@@ -446,4 +446,4 @@ with tab3:
         if st.button("🔙 Back to Overview"):
             st.session_state["view_ticker"] = None
             st.session_state["active_tab"] = "📄 Overview"
-            st.rerun()
+            st.rerun() 
