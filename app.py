@@ -52,6 +52,57 @@ firebase = pyrebase.initialize_app(firebaseConfig)
 auth = firebase.auth()
 db = firebase.database()  # Optional; for now we’ll use Firestore via REST
 
+# --- PAGE CONFIG ---
+st.set_page_config(page_title="Portfolio Tracker", layout="wide")
+
+# --- TOP RIGHT REFRESH BUTTON (Floating-style layout) ---
+header_left, header_right = st.columns([10, 1])
+with header_right:
+    if st.button("🔄 Refresh", use_container_width=True):
+        updated_holdings = []
+
+        for h in st.session_state["holdings"]:
+            ticker = h["Ticker"]
+            quantity = h["Quantity"]
+            buy_price = h["Buy Price"]
+
+            try:
+                stock = yf.Ticker(ticker)
+                current_price = None
+
+                if stock.fast_info and "last_price" in stock.fast_info:
+                    current_price = stock.fast_info["last_price"]
+                if current_price is None:
+                    hist = stock.history(period="1d")
+                    if not hist.empty:
+                        current_price = hist["Close"].iloc[-1]
+
+                if current_price is None:
+                    st.warning(f"⚠️ Skipped {ticker} – no price found.")
+                    updated_holdings.append(h)
+                    continue
+
+                market_value = round(current_price * quantity, 2)
+                cost_basis = round(buy_price * quantity, 2)
+                gain_loss = round(market_value - cost_basis, 2)
+                percent_return = round((gain_loss / cost_basis) * 100, 2) if cost_basis else 0
+
+                updated_holdings.append({
+                    **h,
+                    "Current Price": current_price,
+                    "Market Value": market_value,
+                    "Gain/Loss": gain_loss,
+                    "% Return": percent_return
+                })
+            except Exception:
+                st.warning(f"⚠️ Error updating {ticker}")
+                updated_holdings.append(h)
+
+        st.session_state["holdings"] = updated_holdings
+        st.success("✅ Prices refreshed!")
+        st.rerun()
+
+
 
 # --- PAGE CONFIG ---
 st.set_page_config(page_title="Portfolio Tracker", layout="wide")
@@ -363,9 +414,10 @@ if submitted:
                     st.success(f"✅ {ticker} added to your portfolio!")
         except Exception as e:
             st.error(f"⚠️ Error fetching data for {ticker}.")
+            
 
 # --- TABS ---
-tab1, tab2, tab3 = st.tabs(["📄 Overview", "📊 Analytics", "Company Specifics"])
+tab1, tab2, tab3, tab4 = st.tabs(["📄 Overview", "📊 Analytics", "Company Specifics", "💰 Dividends"])
 
 
 # === OVERVIEW TAB ===
@@ -402,7 +454,7 @@ with tab1:
             hide_index=True,
             use_container_width=True
         )
-
+    
 
         # Portfolio Actions
         st.markdown("### ⚙️ Portfolio Actions")
@@ -543,3 +595,62 @@ with tab3:
             st.session_state["view_ticker"] = None
             st.session_state["active_tab"] = "📄 Overview"
             st.rerun() 
+            
+# === DIVIDENDS TAB ===
+with tab4:
+    st.title("💰 Dividend Income Overview")
+    df = pd.DataFrame(st.session_state["holdings"])
+
+    if df.empty:
+        st.info("No holdings available to calculate dividends.")
+        st.stop()
+
+    dividend_data = []
+
+    for holding in st.session_state["holdings"]:
+        ticker = holding["Ticker"]
+        quantity = holding["Quantity"]
+
+        try:
+            stock_info = get_stock_info(ticker)
+            dividend_yield = stock_info.get("dividendYield", 0)  # Already a decimal like 0.018
+            dividend_rate = stock_info.get("dividendRate", 0)  # In $ per share annually
+
+            annual_income = dividend_rate * quantity if dividend_rate else 0
+
+            dividend_data.append({
+                "Ticker": ticker,
+                "Company": holding["Company"],
+                "Quantity": quantity,
+                "Dividend Yield (%)": round(dividend_yield * 100, 2) if dividend_yield else 0,
+                "Dividend/Share ($)": round(dividend_rate, 2) if dividend_rate else 0,
+                "Annual Income ($)": round(annual_income, 2)
+            })
+
+        except Exception:
+            continue
+
+    dividend_df = pd.DataFrame(dividend_data)
+
+    if dividend_df.empty:
+        st.warning("None of your holdings currently have dividend information.")
+    else:
+        st.dataframe(dividend_df, use_container_width=True)
+
+        total_income = dividend_df["Annual Income ($)"].sum()
+        avg_yield = dividend_df["Dividend Yield (%)"].mean()
+
+        st.markdown("### 📈 Summary")
+        col1, col2 = st.columns(2)
+        col1.metric("Total Annual Dividend Income", f"${total_income:,.2f}")
+        col2.metric("Average Dividend Yield", f"{avg_yield:.2f}%")
+
+        st.markdown("### 🥧 Income Contribution by Ticker")
+        pie_chart = px.pie(
+            dividend_df,
+            names="Ticker",
+            values="Annual Income ($)",
+            title="Dividend Income Distribution",
+            hole=0.4
+        )
+        st.plotly_chart(pie_chart, use_container_width=True)
