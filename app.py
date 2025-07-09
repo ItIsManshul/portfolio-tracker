@@ -6,6 +6,9 @@ import urllib.parse
 import feedparser
 import re
 import requests
+import json
+import os
+import pyrebase
 
 
 if "view_ticker" not in st.session_state:
@@ -32,6 +35,22 @@ if "sidebar_uploaded" not in st.session_state:
 def go_back():
     st.session_state["view_ticker"] = None
     st.rerun()
+    
+
+firebaseConfig = {
+    "apiKey": "AIzaSyAmqd996_cpNFySbS1gYzM73VLCVS4fi_M",
+    "authDomain": "portfoliotracker-5abc6.firebaseapp.com",
+    "projectId": "portfoliotracker-5abc6",
+    "storageBucket": "portfoliotracker-5abc6.appspot.com",
+    "messagingSenderId": "69023883489",
+    "appId": "1:69023883489:web:4be45f2586650bcb15d7a0",
+    "measurementId": "G-HBEJS064RC",
+    "databaseURL": ""  # Firestore doesn't use this, so you can leave it blank
+}
+
+firebase = pyrebase.initialize_app(firebaseConfig)
+auth = firebase.auth()
+db = firebase.database()  # Optional; for now we’ll use Firestore via REST
 
 
 # --- PAGE CONFIG ---
@@ -118,6 +137,83 @@ if st.session_state["view_ticker"]:
 
 
 # --- SIDEBAR INPUT FORM ---
+
+# --- LOGIN SYSTEM ---
+st.sidebar.subheader("🔐 Log In or Sign Up")
+
+with st.sidebar.expander("🔑 Login / Sign Up"):
+    email = st.text_input("Email")
+    password = st.text_input("Password", type="password")
+
+    col1, col2 = st.columns(2)
+    with col1:
+        login_clicked = st.button("Log In")
+    with col2:
+        signup_clicked = st.button("Sign Up")
+
+    user = None
+
+    if login_clicked:
+        try:
+            user = auth.sign_in_with_email_and_password(email, password)
+            st.session_state["user"] = user
+            st.sidebar.success("✅ Logged in!")
+            st.rerun()
+        except:
+            st.sidebar.error("❌ Login failed")
+
+    elif signup_clicked:
+        try:
+            user = auth.create_user_with_email_and_password(email, password)
+            st.session_state["user"] = user
+            st.sidebar.success("✅ Account created!")
+        except Exception as e:
+            st.sidebar.error("❌ Sign-up failed")
+            st.sidebar.error(f"Details: {str(e)}")
+
+
+
+# --- SAVE / LOAD PORTFOLIO FIRESTORE ---
+def save_portfolio_to_firebase(email, portfolio_data):
+    doc_path = f"https://firestore.googleapis.com/v1/projects/portfoliotracker-5abc6/databases/(default)/documents/portfolios/{email.replace('.', '_')}"
+    headers = {"Content-Type": "application/json"}
+    data = {
+        "fields": {
+            "holdings": {
+                "stringValue": json.dumps(portfolio_data)
+            }
+        }
+    }
+    requests.patch(doc_path, headers=headers, json=data)
+
+
+def load_portfolio_from_firebase(email):
+    doc_path = f"https://firestore.googleapis.com/v1/projects/portfoliotracker-5abc6/databases/(default)/documents/portfolios/{email.replace('.', '_')}"
+    res = requests.get(doc_path)
+    if res.status_code == 200:
+        doc = res.json()
+        if "fields" in doc and "holdings" in doc["fields"]:
+            return json.loads(doc["fields"]["holdings"]["stringValue"])
+    return []
+
+if "user" in st.session_state:
+    user_email = st.session_state["user"]["email"]
+
+    st.sidebar.markdown("---")
+    if st.sidebar.button("⬆️ Save Portfolio"):
+        save_portfolio_to_firebase(user_email, st.session_state["holdings"])
+        st.sidebar.success("Portfolio saved!")
+
+    if st.sidebar.button("⬇️ Load Portfolio"):
+        loaded = load_portfolio_from_firebase(user_email)
+        if loaded:
+            st.session_state["holdings"] = loaded
+            st.sidebar.success("Portfolio loaded!")
+            st.rerun()
+        else:
+            st.sidebar.warning("No portfolio found.")
+
+
 st.sidebar.title("📊 Portfolio Tracker")
 st.sidebar.markdown("Enter your stock holdings below:")
 
