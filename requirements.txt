@@ -6,3 +6,5 @@ requests
 feedparser
 urllib3
 pyrebase4
+setuptools
+oauth2client
