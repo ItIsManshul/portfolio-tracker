@@ -105,11 +105,11 @@ if st.session_state.get("active_tab") == "settings":
                     st.warning("⚠️ No saved portfolio found.")
 
         with col3:
-            if st.button("🗑️ Clear Portfolio", key="clear_full"):
-                st.session_state["holdings"] = []
-                st.session_state["sidebar_uploaded"] = False
-                st.success("✅ Portfolio cleared!")
-                st.rerun()
+            # --- CLEAR PORTFOLIO BUTTON ---
+                if st.button("🗑️ Clear Portfolio"):
+                    st.session_state["holdings"] = []
+                    st.session_state["sidebar_uploaded"] = False
+                    st.rerun()
     else:
         st.warning("🔒 Please log in to use these features.")
 
@@ -370,155 +370,94 @@ with st.sidebar:
                 st.warning("No portfolio found.")
 
         # --- Manual Input Form ---
-        st.markdown("---")
-        st.markdown("Enter your stock holdings below:")
-        with st.form("input_form"):
-            ticker = st.text_input("Stock Ticker (e.g., AAPL)")
-            quantity = st.number_input("Quantity Purchased", min_value=0.0, step=1.0)
-            buy_price = st.number_input("Buy Price (per share)", min_value=0.0, step=0.01)
-            submitted = st.form_submit_button("Add Holding")
-        if submitted:
-                ticker = ticker.upper().strip() if ticker else ""
+st.markdown("---")
+st.sidebar.markdown("Enter your stock holdings below:")
 
-        if not ticker:
-            st.error("❗ Please enter a valid stock ticker.")
-        elif quantity <= 0:
-            st.error("❗ Quantity must be greater than 0.")
-        elif buy_price <= 0:
-            st.error("❗ Buy price must be greater than 0.")
-        else:
-            try:
-                stock = yf.Ticker(ticker)
-                current_price = None
-                company_name = "N/A"
+with st.sidebar.form("input_form"):
+    ticker_input = st.text_input("Stock Ticker (e.g., AAPL)")
+    quantity_input = st.number_input("Quantity Purchased", min_value=0.0, step=1.0, key="qty")
+    buy_price_input = st.number_input("Buy Price (per share)", min_value=0.0, step=0.01, key="price")
+    submitted = st.form_submit_button("Add Holding")
 
-                if stock.fast_info and "last_price" in stock.fast_info:
-                    current_price = stock.fast_info["last_price"]
-                if current_price is None:
-                    hist = stock.history(period="1d")
-                    if not hist.empty:
-                        current_price = hist["Close"].iloc[-1]
+# Pull the values safely **after** submission
+if submitted:
+    ticker = ticker_input.upper().strip() if ticker_input else ""
+    quantity = float(quantity_input)
+    buy_price = float(buy_price_input)
 
-                company_name = stock.info.get("shortName", "N/A")
+    if not ticker:
+        st.error("❗ Please enter a valid stock ticker.")
+    elif quantity <= 0:
+        st.error("❗ Quantity must be greater than 0.")
+    elif buy_price <= 0:
+        st.error("❗ Buy price must be greater than 0.")
+    else:
+        try:
+            stock = yf.Ticker(ticker)
+            current_price = None
 
-                if current_price is None:
-                    st.error(f"⚠️ Could not fetch data for {ticker}.")
-                else:
-                    existing_index = next((i for i, h in enumerate(st.session_state["holdings"]) if h["Ticker"] == ticker), None)
+            if stock.fast_info and "last_price" in stock.fast_info:
+                current_price = stock.fast_info["last_price"]
 
-                    if existing_index is not None:
-                        existing = st.session_state["holdings"][existing_index]
-                        old_quantity = float(existing.get("Quantity", 0))
-                        old_buy_price = float(existing.get("Buy Price", 0))
+            if current_price is None:
+                hist = stock.history(period="1d")
+                if not hist.empty:
+                    current_price = hist["Close"].iloc[-1]
 
-                        new_quantity = old_quantity + quantity
-                        new_cost = (old_buy_price * old_quantity) + (buy_price * quantity)
-                        new_avg_price = new_cost / new_quantity if new_quantity else 0
+            company_name = stock.info.get("shortName", "N/A")
 
-                        market_value = round(current_price * new_quantity, 2)
-                        cost_basis = round(new_avg_price * new_quantity, 2)
-                        gain_loss = round(market_value - cost_basis, 2)
-                        percent_return = round((gain_loss / cost_basis) * 100, 2) if cost_basis else 0
-
-                        st.session_state["holdings"][existing_index] = {
-                            "Company": company_name,
-                            "Ticker": ticker,
-                            "Quantity": new_quantity,
-                            "Buy Price": new_avg_price,
-                            "Current Price": current_price,
-                            "Market Value": market_value,
-                            "Gain/Loss": gain_loss,
-                            "% Return": percent_return
-                        }
-                        st.success(f"✅ {ticker} updated!")
-                    else:
-                        market_value = round(current_price * quantity, 2)
-                        cost_basis = round(buy_price * quantity, 2)
-                        gain_loss = round(market_value - cost_basis, 2)
-                        percent_return = round((gain_loss / cost_basis) * 100, 2) if cost_basis else 0
-
-                        st.session_state["holdings"].append({
-                            "Company": company_name,
-                            "Ticker": ticker,
-                            "Quantity": quantity,
-                            "Buy Price": buy_price,
-                            "Current Price": current_price,
-                            "Market Value": market_value,
-                            "Gain/Loss": gain_loss,
-                            "% Return": percent_return
-                        })
-                        st.success(f"✅ {ticker} added to your portfolio!")
-            except Exception as e:
-                st.error(f"⚠️ Error fetching data for {ticker}.")
-
-            pass
-
-        # --- Clear Portfolio ---
-        st.markdown("---")
-        if st.button("🗑️ Clear Portfolio"):
-            st.session_state["holdings"] = []
-            st.session_state["sidebar_uploaded"] = False
-            st.rerun()
-
-        # --- Upload Portfolio via CSV ---
-        st.markdown("### 📤 Upload Portfolio CSV")
-        sidebar_file = st.file_uploader("Upload CSV (Ticker, Quantity, Buy Price)", type="csv", key="sidebar_uploader")
-
-        if sidebar_file is not None and not st.session_state["sidebar_uploaded"]:
-            uploaded_df = pd.read_csv(sidebar_file)
-            required_columns = {"Ticker", "Quantity", "Buy Price"}
-
-            if not required_columns.issubset(uploaded_df.columns):
-                st.error("❌ CSV must have: Ticker, Quantity, Buy Price")
+            if current_price is None:
+                st.error(f"⚠️ Could not fetch data for {ticker}.")
             else:
-                new_holdings = []
-                for _, row in uploaded_df.iterrows():
-                    try:
-                        ticker = str(row["Ticker"]).upper().strip()
-                        quantity = float(row["Quantity"])
-                        buy_price = float(row["Buy Price"])
+                existing_index = next((i for i, h in enumerate(st.session_state["holdings"]) if h["Ticker"] == ticker), None)
 
-                        stock = yf.Ticker(ticker)
-                        current_price = None
-                        company_name = "N/A"
+                if existing_index is not None:
+                    existing = st.session_state["holdings"][existing_index]
+                    old_quantity = float(existing.get("Quantity", 0))
+                    old_buy_price = float(existing.get("Buy Price", 0))
 
-                        if stock.fast_info and "last_price" in stock.fast_info:
-                            current_price = stock.fast_info["last_price"]
+                    new_quantity = old_quantity + quantity
+                    new_cost = (old_buy_price * old_quantity) + (buy_price * quantity)
+                    new_avg_price = new_cost / new_quantity if new_quantity else 0
 
-                        if current_price is None:
-                            hist = stock.history(period="1d")
-                            if not hist.empty:
-                                current_price = hist["Close"].iloc[-1]
+                    market_value = round(current_price * new_quantity, 2)
+                    cost_basis = round(new_avg_price * new_quantity, 2)
+                    gain_loss = round(market_value - cost_basis, 2)
+                    percent_return = round((gain_loss / cost_basis) * 100, 2) if cost_basis else 0
 
-                        company_name = stock.info.get("shortName", "N/A")
+                    st.session_state["holdings"][existing_index] = {
+                        "Company": company_name,
+                        "Ticker": ticker,
+                        "Quantity": new_quantity,
+                        "Buy Price": new_avg_price,
+                        "Current Price": current_price,
+                        "Market Value": market_value,
+                        "Gain/Loss": gain_loss,
+                        "% Return": percent_return
+                    }
+                    st.success(f"✅ {ticker} updated!")
+                else:
+                    market_value = round(current_price * quantity, 2)
+                    cost_basis = round(buy_price * quantity, 2)
+                    gain_loss = round(market_value - cost_basis, 2)
+                    percent_return = round((gain_loss / cost_basis) * 100, 2) if cost_basis else 0
 
-                        if current_price is None:
-                            st.warning(f"⚠️ Skipped {ticker}: no price found.")
-                            continue
+                    st.session_state["holdings"].append({
+                        "Company": company_name,
+                        "Ticker": ticker,
+                        "Quantity": quantity,
+                        "Buy Price": buy_price,
+                        "Current Price": current_price,
+                        "Market Value": market_value,
+                        "Gain/Loss": gain_loss,
+                        "% Return": percent_return
+                    })
+                    st.success(f"✅ {ticker} added to your portfolio!")
+        except Exception as e:
+            st.error(f"⚠️ Error fetching data for {ticker}.")
 
-                        market_value = round(current_price * quantity, 2)
-                        cost_basis = round(buy_price * quantity, 2)
-                        gain_loss = round(market_value - cost_basis, 2)
-                        percent_return = round((gain_loss / cost_basis) * 100, 2) if cost_basis else 0
-
-                        new_holdings.append({
-                            "Company": company_name,
-                            "Ticker": ticker,
-                            "Quantity": quantity,
-                            "Buy Price": buy_price,
-                            "Current Price": current_price,
-                            "Market Value": market_value,
-                            "Gain/Loss": gain_loss,
-                            "% Return": percent_return
-                        })
-
-                    except Exception:
-                        st.warning(f"⚠️ Skipped {ticker} – error during processing.")
-
-                st.session_state["holdings"].extend(new_holdings)
-                st.session_state["sidebar_uploaded"] = True
-                st.success("✅ Portfolio imported!")
-                st.rerun()
+            
+            pass
 
 
 if st.session_state["active_tab"] == "overview":
