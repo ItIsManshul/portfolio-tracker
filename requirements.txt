@@ -3,8 +3,8 @@ pandas
 yfinance>=0.2.36
 plotly
 requests>=2.28.1
-feedparser
 urllib3>=1.26.15
+feedparser
 pyrebase4
 oauth2client
 setuptools<81
