@@ -8,7 +8,6 @@ import re
 import requests
 import json
 import os
-import pyrebase
 
 
 if "active_tab" not in st.session_state:
@@ -50,9 +49,36 @@ firebaseConfig = {
 }
 
 
-firebase = pyrebase.initialize_app(firebaseConfig)
-auth = firebase.auth()
-db = firebase.database()
+# Firebase REST API login/signup
+FIREBASE_API_KEY = os.getenv("FIREBASE_API_KEY")  # Or set it directly as a string
+FIREBASE_AUTH_URL = "https://identitytoolkit.googleapis.com/v1/accounts"
+
+def firebase_login(email, password):
+    url = f"{FIREBASE_AUTH_URL}:signInWithPassword?key={FIREBASE_API_KEY}"
+    payload = {
+        "email": email,
+        "password": password,
+        "returnSecureToken": True
+    }
+    res = requests.post(url, json=payload)
+    if res.status_code == 200:
+        return res.json()  # contains idToken, email, etc.
+    else:
+        raise ValueError("Login failed")
+
+def firebase_signup(email, password):
+    url = f"{FIREBASE_AUTH_URL}:signUp?key={FIREBASE_API_KEY}"
+    payload = {
+        "email": email,
+        "password": password,
+        "returnSecureToken": True
+    }
+    res = requests.post(url, json=payload)
+    if res.status_code == 200:
+        return res.json()
+    else:
+        raise ValueError("Sign-up failed")
+
 
 # --- SAVE / LOAD PORTFOLIO FIRESTORE ---
 def save_portfolio_to_firebase(email, portfolio_data):
@@ -311,21 +337,22 @@ with st.sidebar:
         user = None
         if login_clicked:
             try:
-                user = auth.sign_in_with_email_and_password(email, password)
+                user = firebase_login(email, password)
                 st.session_state["user"] = user
-                st.success("✅ Logged in!")
+                st.sidebar.success("✅ Logged in!")
                 st.rerun()
             except:
-                st.error("❌ Login failed")
+                st.sidebar.error("❌ Login failed")
 
         elif signup_clicked:
             try:
-                user = auth.create_user_with_email_and_password(email, password)
+                user = firebase_signup(email, password)
                 st.session_state["user"] = user
-                st.success("✅ Account created!")
+                st.sidebar.success("✅ Account created!")
             except Exception as e:
-                st.error("❌ Sign-up failed")
-                st.error(f"Details: {str(e)}")
+                st.sidebar.error("❌ Sign-up failed")
+                st.sidebar.error(f"Details: {str(e)}")
+
 
     # --- PORTFOLIO FUNCTIONS (only when logged in) ---
     
